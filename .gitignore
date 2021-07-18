@@ -1,0 +1,9 @@
+__pycache__
+results/saved_models/checkpoints/*
+!results/saved_models/checkpoints/README.md
+results/saved_models/config_train/*
+!results/saved_models/config_train/README.md
+
+results/tensorboard_callbacks/*
+!results/tensorboard_callbacks/README.md
+.DS_Store

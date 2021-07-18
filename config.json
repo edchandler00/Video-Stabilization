@@ -1,0 +1,9 @@
+{
+    "settings": {
+        "root_path": "",
+        "data_path": "",
+        "gpu_id": 0,
+        "tf_seed": 1,
+        "np_seed": 1
+    }
+}
