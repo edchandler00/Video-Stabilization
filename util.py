@@ -6,7 +6,7 @@ def get_added_frequencies(N):
 
     freq_pos = np.random.choice(np.arange(1,N), size=num_freqs, replace=False) # never set freq 0 to anything
 
-    print(f'num_freqs:\t\t{num_freqs}')
+    # print(f'num_freqs:\t\t{num_freqs}')
 
     # TODO: figure out best distribution
     rand_freqs_real = np.random.uniform(-100,100,(num_freqs,1))
