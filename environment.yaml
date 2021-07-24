@@ -4,7 +4,7 @@ channels:
   - defaults
 dependencies:
   - bzip2=1.0.8
-  - ca-certificates=2021.5.30
+  - ca-certificates=2021.7.5
   - cairo=1.16.0
   - certifi=2021.5.30
   - cycler=0.10.0
@@ -62,6 +62,7 @@ dependencies:
   - sqlite=3.36.0
   - tk=8.6.10
   - tornado=6.1
+  - tqdm=4.61.2
   - wheel=0.36.2
   - x264=1!152.20180806
   - xz=5.2.5
