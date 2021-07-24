@@ -85,7 +85,7 @@ if save_vid:
 
 for frame in corrected_vid:
     if save_vid:
-        out.write(corrected_frame)
+        out.write(frame)
 
     if show_vid:
         cv2.imshow('corrected frame', frame)
