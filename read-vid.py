@@ -50,15 +50,19 @@ for i in range(N):
     pt_c = np.array([frame_width+amount,frame_height+amount])
     pt_d = np.array([frame_width+amount,amount])
 
-    # pt_a += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
-    # pt_b += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
-    # pt_c += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
-    # pt_d += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
+    pt_a += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
+    pt_b += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
+    pt_c += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
+    pt_d += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
 
-    pt_a += np.array([np.random.normal(0,amount),np.random.normal(0,amount)],dtype=np.int32)
-    pt_b += np.array([np.random.normal(0,amount),np.random.normal(0,amount)],dtype=np.int32)
-    pt_c += np.array([np.random.normal(0,amount),np.random.normal(0,amount)],dtype=np.int32)
-    pt_d += np.array([np.random.normal(0,amount),np.random.normal(0,amount)],dtype=np.int32)
+    # pt_a += np.array([np.random.normal(0,amount),np.random.normal(0,amount)],dtype=np.int32)
+    # pt_b += np.array([np.random.normal(0,amount),np.random.normal(0,amount)],dtype=np.int32)
+    # pt_c += np.array([np.random.normal(0,amount),np.random.normal(0,amount)],dtype=np.int32)
+    # pt_d += np.array([np.random.normal(0,amount),np.random.normal(0,amount)],dtype=np.int32)
+
+    for the_pt in [pt_a, pt_b, pt_c, pt_d]:
+        print(the_pt)
+    # FIXME: truncate if out of bounds!
 
     # TODO: figure out this!!! (pretty much copied)
     orig_with_trap = cv2.rectangle(orig_with_trap, (amount,amount), (frame_width+amount, frame_height+amount), (255, 0, 0), 1)
@@ -85,26 +89,19 @@ for i in range(N):
     # TODO: try cv2.WARP_INVERSE_MAP
     reconstructed = cv2.warpPerspective(added_disturbance, reconstruction_M, (frame_width+2*amount, frame_height+2*amount))
     # print(cv2.perspectiveTransform())
-    temp_t_l = np.matmul(reconstruction_M, [0,0,1])
-    temp_t_l /= temp_t_l[2]
-    temp_t_l = temp_t_l[:2]
 
-    temp_b_l = np.matmul(reconstruction_M, [0,frame_height-1,1])
-    temp_b_l /= temp_b_l[2]
-    temp_b_l = temp_b_l[:2]
+    # print(np.matmul(reconstruction_M, [0,0,1]))
+    # print(np.matmul(reconstruction_M, [frame_width-1,frame_height-1,1]))
+    
+    # shape (3,4); last axis in order TL, BL, BR, TR
+    temp_corners = np.matmul(reconstruction_M, np.array([[0,0,1], [0,frame_height-1,1], [frame_width-1,frame_height-1,1], [frame_width-1,0,1]]).T)
+    temp_corners /= temp_corners[-1]
 
-    temp_b_r = np.matmul(reconstruction_M, [frame_width-1,frame_height-1,1])
-    temp_b_r /= temp_b_r[2]
-    temp_b_r = temp_b_r[:2]
+    reconstructed_t_pos.append(np.max([temp_corners[1,0], temp_corners[1,3]]))
+    reconstructed_l_pos.append(np.max([temp_corners[0,0], temp_corners[0,1]]))
+    reconstructed_b_pos.append(np.min([temp_corners[1,1], temp_corners[1,2]]))
+    reconstructed_r_pos.append(np.min([temp_corners[0,2], temp_corners[0,3]]))
 
-    temp_t_r = np.matmul(reconstruction_M, [frame_width-1,0,1])
-    temp_t_r /= temp_t_r[2]
-    temp_t_r = temp_t_r[:2]
-
-    reconstructed_t_pos.append(np.max([temp_t_l[1], temp_t_r[1]]))
-    reconstructed_l_pos.append(np.max([temp_t_l[0], temp_b_l[0]]))
-    reconstructed_b_pos.append(np.min([temp_b_l[1], temp_b_r[1]]))
-    reconstructed_r_pos.append(np.min([temp_b_r[0], temp_t_r[0]]))
 
     padded_added_disturbance = np.pad(added_disturbance, ((amount,amount), (amount,amount), (0,0)), mode='constant', constant_values=0)
     # cv2.imshow('asdf', np.hstack((orig_with_trap, padded_added_disturbance, reconstructed)))
