@@ -101,6 +101,7 @@ the_Ms = np.array(the_Ms).reshape(N+ewm_span, 9)
 
 the_Ms_final = np.ones((N, 9))
 
+# https://github.com/mariito/DVS_/blob/master/151.pdf
 for i in range(8): # TODO: make sure (2,2) is always 1
     temp = the_Ms[:,i]
     s_temp = pd.Series(temp)

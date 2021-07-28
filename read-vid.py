@@ -5,6 +5,258 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
+
+frame_width, frame_height = 128,128 # TODO: figure out best size (hyperparameter)
+N = 120
+
+cap = cv2.VideoCapture('/Users/eddiechandler/Documents/Personal_Projects/Videos/shred.mov')
+
+num_frames, fps, height, width = get_video_info(cap)
+
+print(fps)
+print(f'height {height}')
+print(f'width {width}')
+
+X = get_added_frequencies(N)
+w_shift, h_shift = get_frame_shift(X)
+
+# TODO: only return if pixel values are different enough
+# w_start,h_start = get_crop_pos(width, frame_width, height, frame_height)
+
+w_start = int((width - frame_width) / 2)
+h_start = int((height - frame_height) / 2)
+
+reconstructed_t_pos = []
+reconstructed_l_pos = []
+reconstructed_b_pos = []
+reconstructed_r_pos = []
+
+the_frames = []
+# the_small_frames = []
+large_frames = []
+
+small_disturbance_frames = []
+large_disturbance_frames = []
+
+print("\n\nstarting\n\n")
+
+
+# Compute the matrices
+# TODO: add more lateral and rotational
+the_Ms = []
+ewm_span = 3
+amount = 3
+for i in range(N+ewm_span):
+    pt_a = np.array([amount,amount])
+    pt_b = np.array([amount,frame_height+amount])
+    pt_c = np.array([frame_width+amount,frame_height+amount])
+    pt_d = np.array([frame_width+amount,amount])
+
+    # FIXME: truncate if out of bounds!
+    pt_a += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
+    pt_b += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
+    pt_c += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
+    pt_d += [np.random.randint(-amount,amount),np.random.randint(-amount,amount)]
+
+    M_input_pts = np.float32([pt_a, pt_b, pt_c, pt_d])
+    M_output_pts = np.float32([[0, 0],
+                            [0, frame_height - 1],
+                            [frame_width - 1, frame_height - 1],
+                            [frame_width - 1, 0]])
+
+    M = cv2.getPerspectiveTransform(M_input_pts, M_output_pts)
+
+    the_Ms.append(M)
+the_Ms = np.array(the_Ms).reshape(N+ewm_span, 9)
+
+the_Ms_final = np.ones((N, 9))
+# https://github.com/mariito/DVS_/blob/master/151.pdf
+# Final position is always 1
+for i in range(8): # TODO: make sure (2,2) is always 1
+    temp = the_Ms[:,i]
+    s_temp = pd.Series(temp)
+    the_Ms_final[:,i] = s_temp.ewm(span=ewm_span).mean()[ewm_span:] 
+
+the_Ms_final = the_Ms_final.reshape(N,3,3)
+
+# Add motion and "reconstruct"
+for i in range(N):
+    ret,frame = cap.read()
+    if not ret:
+        print("cannot recieve frame")
+        break
+    M = the_Ms_final[i]
+
+    orig_with_trap = frame[h_start-amount:h_start+frame_height+amount, w_start-amount:w_start+frame_width+amount].copy() #https://stackoverflow.com/questions/16533078/clone-an-image-in-cv2-python
+
+    added_disturbance = cv2.warpPerspective(orig_with_trap, M, (frame_width, frame_height))
+    # cv2.imshow('added_disturbance small', added_disturbance)
+    small_disturbance_frames.append(added_disturbance)
+
+    padded_added_disturbance = np.pad(added_disturbance, ((amount,amount), (amount,amount), (0,0)), mode='constant', constant_values=0) # This is for using imshow
+
+    reconstruction_M = np.linalg.pinv(M)
+
+    reconstructed = cv2.warpPerspective(added_disturbance, reconstruction_M, (frame_width+2*amount, frame_height+2*amount))
+
+    the_frames.append(reconstructed)
+
+    # shape (3,4); last axis in order TL, BL, BR, TR
+    temp_corners = np.matmul(reconstruction_M, np.array([[0,0,1], [0,frame_height-1,1], [frame_width-1,frame_height-1,1], [frame_width-1,0,1]]).T)
+    temp_corners /= temp_corners[-1]
+
+    reconstructed_t_pos.append(np.max([temp_corners[1,0], temp_corners[1,3]]))
+    reconstructed_l_pos.append(np.max([temp_corners[0,0], temp_corners[0,1]]))
+    reconstructed_b_pos.append(np.min([temp_corners[1,1], temp_corners[1,2]]))
+    reconstructed_r_pos.append(np.min([temp_corners[0,2], temp_corners[0,3]]))
+
+    #
+    h_large_start = int((height - 512) / 2)
+    w_large_start = int((width - 512) / 2)
+
+    large_orig_with_trap = frame[h_large_start-amount:h_large_start+512+amount, w_large_start-amount:w_large_start+512+amount]
+
+    poly_w_shift = int((512-frame_width)/2)
+    poly_h_shift = int((512-frame_height)/2)
+
+    pts = np.array([pt_a, pt_b, pt_c, pt_d], np.int32)
+    for i, pt in enumerate(pts):
+        pts[i] = pt + [poly_w_shift, poly_h_shift]
+    pts = pts.reshape((-1, 1, 2))
+
+
+    # Create the morphed frame
+    h = 512
+    w = 512
+    indy, indx = np.indices((h, w), dtype=np.float32)
+    indy -= poly_h_shift
+    indx -= poly_w_shift
+    # https://stackoverflow.com/questions/44457064/displaying-stitched-images-together-without-cutoff-using-warpaffine/44459869#44459869
+    # and https://stackoverflow.com/questions/46520123/how-do-i-use-opencvs-remap-function/46524544#46524544
+    indices = np.array([indx.ravel(), indy.ravel(), np.ones_like(indx).ravel()])
+
+    # TODO: figure out why I must take pinv
+    temp_M = np.linalg.pinv(M)
+    mappings = temp_M.dot(indices)
+    map_x, map_y = mappings[:-1]/mappings[-1] 
+    map_x = map_x.reshape(h, w).astype(np.float32) + poly_w_shift
+    map_y = map_y.reshape(h, w).astype(np.float32) + poly_h_shift
+
+    dst = cv2.remap(large_orig_with_trap, map_x, map_y, cv2.INTER_LINEAR)
+    large_disturbance_frames.append(dst[70:-70,70:-70])
+
+
+
+    # FIXME: deal with padding so that the reconstructed is the correct size!!!
+    # TODO: figure out why I must take pinv
+    h -= 140
+    w -= 140
+    indy, indx = np.indices((h, w), dtype=np.float32)
+    indy -= poly_h_shift
+    indx -= poly_w_shift
+    # https://stackoverflow.com/questions/44457064/displaying-stitched-images-together-without-cutoff-using-warpaffine/44459869#44459869
+    # and https://stackoverflow.com/questions/46520123/how-do-i-use-opencvs-remap-function/46524544#46524544
+    indices = np.array([indx.ravel(), indy.ravel(), np.ones_like(indx).ravel()])
+
+    temp_M = M
+    mappings = temp_M.dot(indices)
+    map_x, map_y = mappings[:-1]/mappings[-1] 
+    map_x = map_x.reshape(h, w).astype(np.float32) + poly_w_shift
+    map_y = map_y.reshape(h, w).astype(np.float32) + poly_h_shift
+
+    large_reconstructed = cv2.remap(dst, map_x, map_y, cv2.INTER_LINEAR)
+    large_frames.append(large_reconstructed)
+
+
+
+
+
+
+    # cv2.imshow('Middle Patch', np.hstack((orig_with_trap, padded_added_disturbance, reconstructed)))
+    # cv2.imshow('larger', large_orig_with_trap)
+    # cv2.imshow('Large Disturbance', dst)
+
+    # if cv2.waitKey(33) == ord('q'):
+    #     break
+cap.release()
+cv2.destroyAllWindows()
+
+# Show the unstable video
+for small_disturbance_frame, large_disturbance_frame in zip(small_disturbance_frames, large_disturbance_frames):
+    None
+    # cv2.imshow('disturb small', small_disturbance_frame)
+    # cv2.imshow('disturb large', large_disturbance_frame)
+    # if cv2.waitKey(33) == ord('q'):
+    #     break
+cv2.destroyAllWindows()
+
+
+# Compute how many pixels to cut off in final reconstruction
+# FIXME: should i use rint instead???
+#TODO: fix M that cut off too much
+# TODO: do this with big video
+final_t_pos = np.max(reconstructed_t_pos).astype(np.int32)
+final_l_pos = np.max(reconstructed_l_pos).astype(np.int32)
+final_b_pos = np.min(reconstructed_b_pos).astype(np.int32)
+final_r_pos = np.min(reconstructed_r_pos).astype(np.int32)
+
+print(f'final pos: {final_t_pos}, {final_l_pos}, {final_b_pos}, {final_r_pos}')
+print(len(the_frames))
+print(the_frames[0].shape)
+# for frame, small_frame in zip(the_frames, the_small_frames):
+print(large_frames[0].shape)
+for frame, large_frame in zip(the_frames, large_frames):
+    cv2.imshow('small reconstructed', frame[ final_t_pos:final_b_pos, final_l_pos:final_r_pos])
+    cv2.imshow('large reconstructed', large_frame)
+    # cv2.imshow('small reconstructed', small_frame[ final_t_pos+125:final_b_pos-125, final_l_pos+125:final_r_pos-125])
+    if cv2.waitKey(33) == ord('q'):
+        break
+    # input('enters')
+cv2.destroyAllWindows()
+
+# Display boxplot of amount of pixels cut off on each side
+fig, (ax1, ax2) = plt.subplots(2,1)
+ax1.boxplot([reconstructed_t_pos, reconstructed_l_pos])
+# ax1.set_xticks(['a','b'])
+ax2.boxplot([reconstructed_b_pos, reconstructed_r_pos])
+# ax2.xticks([1,2],['bottom','right'])
+
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
+
 # frame_width, frame_height = 500,500 # TODO: figure out best size (hyperparameter)
 frame_width, frame_height = 128,128 # TODO: figure out best size (hyperparameter)
 N = 120
@@ -160,18 +412,12 @@ for i in range(N):
     
 
 
-
-
-
-
 for small_disturbance_frame, large_disturbance_frame in zip(small_disturbance_frames, large_disturbance_frames):
     cv2.imshow('diturb small', small_disturbance_frame)
     cv2.imshow('disturb large', large_disturbance_frame)
 
     if cv2.waitKey(33) == ord('q'):
         break
-
-
     
 # FIXME: should i use rint instead???
 final_t_pos = np.max(reconstructed_t_pos).astype(np.int32)
@@ -206,7 +452,7 @@ plt.show()
 
 #TODO: fix M that cut off too much
 
-
+'''
 
 
 
